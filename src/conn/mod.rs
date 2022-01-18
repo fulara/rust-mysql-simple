@@ -28,17 +28,7 @@ use mysql_common::{
     packets::SslRequest,
 };
 
-use std::{
-    borrow::{Borrow, Cow},
-    cmp,
-    collections::HashMap,
-    convert::TryFrom,
-    io::{self, Write as _},
-    mem,
-    ops::{Deref, DerefMut},
-    process,
-    sync::Arc,
-};
+use std::{borrow::{Borrow, Cow}, cmp, collections::HashMap, convert::TryFrom, io::{self, Write as _}, mem, ops::{Deref, DerefMut}, process, sync::Arc, thread};
 
 use crate::{
     buffer_pool::{get_buffer, Buffer},
@@ -63,6 +53,7 @@ use crate::{
     LocalInfileHandler, Opts, OptsBuilder, Params, QueryResult, Result, Transaction,
     Value::{self, Bytes, NULL},
 };
+use crate::conn::query_result::log_it;
 
 use crate::DriverError::TlsNotSupported;
 use crate::SslOpts;
@@ -911,7 +902,15 @@ impl Conn {
             self.sync_seq_id();
         }
 
+        if log_it() {
+            println!("{:?} Reading a packet....", thread::current().id());
+        }
         let pld = self.read_packet()?;
+
+        if log_it() {
+            println!("{:?} Okay packet read.... {:#X}", thread::current().id(), pld[0]);
+        }
+
         match pld[0] {
             0x00 => {
                 let ok = self.handle_ok::<CommonOkPacket>(&pld)?;

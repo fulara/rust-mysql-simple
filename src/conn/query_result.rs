@@ -10,7 +10,7 @@ pub use mysql_common::proto::{Binary, Text};
 
 use mysql_common::packets::OkPacket;
 
-use std::{borrow::Cow, marker::PhantomData, sync::Arc};
+use std::{borrow::Cow, marker::PhantomData, sync::Arc, thread};
 
 use crate::{conn::ConnMut, Column, Conn, Error, Result, Row};
 
@@ -97,6 +97,10 @@ impl From<Or<Vec<Column>, OkPacket<'static>>> for SetIteratorState {
     }
 }
 
+pub fn log_it() -> bool {
+    std::path::Path::new("/tmp/log").exists()
+}
+
 /// Response to a query or statement execution.
 ///
 /// It is an iterator:
@@ -141,10 +145,25 @@ impl<'c, 't, 'tc, T: crate::prelude::Protocol> QueryResult<'c, 't, 'tc, T> {
             "self.state != OnBoundary"
         );
 
+        if log_it() {
+            println!("{:?} Loggin! state: {:?} index {:?}, conn: {:?} more result exist?! {}", thread::current().id(), self.state, self.set_index, self.conn, self.conn.more_results_exists());
+        }
+
         if self.conn.more_results_exists() {
             match self.conn.handle_result_set() {
-                Ok(meta) => self.state = meta.into(),
-                Err(err) => self.state = err.into(),
+                Ok(meta) => {
+                    self.state = meta.into();
+                    if log_it() {
+                        println!("{:?} Loggin! Entered Ok State. now: {:?}, index b4 incrementing {}", thread::current().id(), self.state, self.set_index);
+                    }
+                },
+                Err(err) =>  {
+                    let err_s = format!("{:?}", err);
+                    self.state = err.into();
+                    if log_it() {
+                        println!("{:?} Loggin! Entered err state. now: {:?}, index b4 incrementing {}. err is: {}", thread::current().id(), self.state, self.set_index, err_s);
+                    }
+                },
             }
             self.set_index += 1;
         } else {
@@ -217,6 +236,9 @@ impl<'c, 't, 'tc, T: crate::prelude::Protocol> QueryResult<'c, 't, 'tc, T> {
     pub fn iter<'d>(&'d mut self) -> Option<ResultSet<'c, 't, 'tc, 'd, T>> {
         use SetIteratorState::*;
 
+        if log_it() {
+            println!("{:?} Loggin! state: in ::iter() {:?}", thread::current().id(), self.state);
+        }
         if let OnBoundary | Done = &self.state {
             debug_assert!(
                 !self.conn.more_results_exists(),
@@ -290,7 +312,11 @@ impl<'c, 't, 'tc, T: crate::prelude::Protocol> QueryResult<'c, 't, 'tc, T> {
 
 impl<'c, 't, 'tc, T: crate::prelude::Protocol> Drop for QueryResult<'c, 't, 'tc, T> {
     fn drop(&mut self) {
-        while self.iter().is_some() {}
+        while self.iter().is_some() {
+            if log_it() {
+                println!("{:?} Loggin! I am still loopin", thread::current().id());
+            }
+        }
     }
 }
 
