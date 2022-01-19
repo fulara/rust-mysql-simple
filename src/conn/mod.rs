@@ -413,10 +413,18 @@ impl Conn {
     fn read_packet(&mut self) -> Result<Buffer> {
         loop {
             let mut buffer = get_buffer();
-            if !self.stream_mut().next_packet(buffer.as_mut())? {
-                return Err(
-                    io::Error::new(io::ErrorKind::BrokenPipe, "server disconnected").into(),
-                );
+            match self.stream_mut().next_packet(buffer.as_mut()) {
+                Ok(true) => (),
+                Ok(false) => {
+                    self.handle_err();
+                    return Err(
+                        io::Error::new(io::ErrorKind::BrokenPipe, "server disconnected").into(),
+                    );
+                }
+                e @ Err(_) => {
+                    self.handle_err();
+                    e?;
+                }
             }
             match buffer[0] {
                 0xff => {
